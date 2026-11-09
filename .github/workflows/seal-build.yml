@@ -1,0 +1,60 @@
+name: seal-build
+
+# Build-and-pack only: the test suite runs on Travis (.travis.yml).
+# Reproduces the release recipe (build/release.js generateArtifacts: `grunt` then the
+# dist/cdn release copies) on node 0.10 and packs the npm tarball.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Resolve devDependencies as of the 1.11.1 release (uglify-js output depends on it)
+      npm_config_registry: https://:2014-05-01T18%3A05%3A32.863Z@time-machines-npm.sealsecurity.io/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install node 0.10 and faketime
+        run: |
+          curl -sSL https://nodejs.org/dist/v0.10.48/node-v0.10.48-linux-x64.tar.gz | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v0.10.48-linux-x64/bin" >> "$GITHUB_PATH"
+          sudo apt-get update
+          sudo apt-get install -y faketime
+
+      - name: Show toolchain
+        run: node -v && npm -v
+
+      - name: Install dependencies
+        run: |
+          npm install
+          # build/release.js dependency (module.exports.dependencies)
+          npm install shelljs@0.2.6
+
+      - name: Build with grunt
+        # The build stamps the current date into dist/jquery.js and the banner year into
+        # dist/jquery.min.js; pin the clock to the 1.11.1 release build time.
+        run: TZ=UTC faketime '2014-05-01 17:42:00' ./node_modules/.bin/grunt
+
+      - name: Generate dist/cdn release copies
+        run: |
+          node -e '
+          var Release = { newVersion: require( "./package.json" ).version, preRelease: false,
+            complete: function() {},
+            exec: function( cmd ) { console.log( "(already ran: " + cmd + ")" ); },
+            define: function( o ) { for ( var k in o ) { Release[ k ] = o[ k ]; } } };
+          require( "./build/release.js" )( Release );
+          Release.generateArtifacts(function( files ) {
+            console.log( "Release artifacts: " + files.join( " " ) );
+          });'
+          ls -l dist dist/cdn
+
+      - name: Pack
+        run: npm pack
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jquery-npm
+          path: jquery-*.tgz
+          if-no-files-found: error

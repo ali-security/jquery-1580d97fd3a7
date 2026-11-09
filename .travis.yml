@@ -1,3 +1,23 @@
 language: node_js
 node_js:
 - '0.10'
+# Sealed build: `npm test` (grunt: jsonlint, build, jshint, jscs, uglify, dist) builds dist/
+# but executes no tests; jQuery's QUnit suite (test/index.html) only runs in a browser.
+# Run it headlessly in Chrome against the freshly built dist/, one page load per module
+# (as the testswarm task did), served by PHP's built-in server (the image's phpenv PHP;
+# the ajax tests need the test/data/*.php endpoints; several workers so long-polling
+# endpoints such as dont_return.php don't block other requests).
+dist: jammy
+addons:
+  chrome: stable
+before_script:
+- curl -sSL https://nodejs.org/dist/v18.20.4/node-v18.20.4-linux-x64.tar.xz | tar xJ -C /tmp
+- PATH=/tmp/node-v18.20.4-linux-x64/bin:$PATH npm install --prefix /tmp/qunit-runner puppeteer-core@22.15.0
+- php --version
+- google-chrome-stable --version
+script:
+- npm test
+- PHP_CLI_SERVER_WORKERS=8 php -S 127.0.0.1:8123 -t . > /tmp/php-server.log 2>&1 &
+- sleep 3
+- PATH=/tmp/node-v18.20.4-linux-x64/bin:$PATH NODE_PATH=/tmp/qunit-runner/node_modules CHROME_BIN=$(which google-chrome-stable) node test/run-qunit-chrome.js http://127.0.0.1:8123/test/index.html ajax attributes callbacks core css data deferred dimensions effects event manipulation offset queue selector serialize support traversing wrap
+- 'echo "Excluded (modern-Chrome incompatible, see comments in the test files): [ajax] #14379 - jQuery.ajax() on unload; [offset] fractions (see #7730 and #7885); [support] Check CSP: csp.log assertion only"'
