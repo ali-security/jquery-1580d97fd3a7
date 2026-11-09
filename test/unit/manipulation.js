@@ -1615,7 +1615,7 @@ function testHtml( valueObj ) {
 		div = jQuery("<div></div>"),
 		fixture = jQuery("#qunit-fixture");
 
-	div.html( valueObj("<div id='parent_1'><div id='child_1'/></div><div id='parent_2'/>") );
+	div.html( valueObj("<div id='parent_1'><div id='child_1'></div></div><div id='parent_2'></div>") );
 	equal( div.children().length, 2, "Found children" );
 	equal( div.children().children().length, 1, "Found grandchild" );
 
@@ -2231,7 +2231,7 @@ test( "Guard against exceptions when clearing safeChildNodes", function() {
 	var div;
 
 	try {
-		div = jQuery("<div/><hr/><code/><b/>");
+		div = jQuery("<div></div><hr/><code></code><b></b>");
 	} catch(e) {}
 
 	ok( div && div.jquery, "Created nodes safely, guarded against exceptions on safeChildNodes[ -1 ]" );
@@ -2370,7 +2370,7 @@ test( "jQuery._evalUrl (#12838)", function() {
 		equal( ( input.url || input ).slice( -1 ), expectedArgument, message );
 		expectedArgument++;
 	};
-	jQuery("#qunit-fixture").append("<script src='1'/><script src='2'/>");
+	jQuery("#qunit-fixture").append("<script src='1'></script><script src='2'></script>");
 	equal( expectedArgument, 3, "synchronous execution" );
 
 	message = "custom implementation";
@@ -2379,7 +2379,7 @@ test( "jQuery._evalUrl (#12838)", function() {
 	jQuery.ajax = function( options ) {
 		strictEqual( options, {}, "Unexpected call to jQuery.ajax" );
 	};
-	jQuery("#qunit-fixture").append("<script src='3'/><script src='4'/>");
+	jQuery("#qunit-fixture").append("<script src='3'></script><script src='4'></script>");
 
 	jQuery.ajax = ajax;
 	jQuery._evalUrl = evalUrl;
@@ -2422,7 +2422,7 @@ test( "insertAfter, insertBefore, etc do not work when destination is original e
 test( "Index for function argument should be received (#13094)", 2, function() {
 	var i = 0;
 
-	jQuery("<div/><div/>").before(function( index ) {
+	jQuery("<div></div><div></div>").before(function( index ) {
 		equal( index, i++, "Index should be correct" );
 	});
 
@@ -2435,4 +2435,51 @@ test( "Make sure jQuery.fn.remove can work on elements in documentFragment", 1, 
 	jQuery( div ).remove();
 
 	equal( fragment.childNodes.length, 0, "div element was removed from documentFragment" );
+});
+
+asyncTest( "Self-closing tags are not expanded out of raw text elements (CVE-2020-11022)", 14, function() {
+	var $div, nodes, parsed,
+		payload = "<img src='' onerror='window.cve202011022 = true;'>";
+
+	Globals.register("cve202011022");
+	window.cve202011022 = false;
+
+	// html() - innerHTML shortcut
+	$div = jQuery("<div></div>").html( "<textarea><textarea/>" + payload + "</textarea>" );
+	equal( $div.find("img").length, 0, "html(): <textarea/> does not close the open <textarea>" );
+	equal( $div.children().length, 1, "html(): only the <textarea> was created" );
+	ok( $div.find("textarea").val().indexOf( payload ) > -1, "html(): <textarea> content kept as text" );
+
+	// html() - <style> skips the innerHTML shortcut and goes through buildFragment
+	$div = jQuery("<div></div>").html( "<style><style/>" + payload + "</style>" );
+	equal( $div.find("img").length, 0, "html(): <style/> does not close the open <style>" );
+	equal( $div.children().length, 1, "html(): only the <style> was created" );
+
+	// append() - domManip/buildFragment
+	$div = jQuery("<div></div>").append( "<xmp><xmp/>" + payload + "</xmp>" );
+	equal( $div.find("img").length, 0, "append(): <xmp/> does not close the open <xmp>" );
+	equal( $div.children().length, 1, "append(): only the <xmp> was created" );
+
+	// jQuery( html )
+	nodes = jQuery( "<title><title/>" + payload + "</title>" );
+	equal( nodes.length, 1, "jQuery(html): <title/> does not close the open <title>" );
+	equal( nodes[ 0 ].nodeName.toLowerCase(), "title", "jQuery(html): only the <title> was created" );
+
+	// jQuery.parseHTML
+	nodes = jQuery.parseHTML( "<noembed><noembed/>" + payload + "</noembed>" );
+	equal( nodes.length, 1, "jQuery.parseHTML(): <noembed/> does not close the open <noembed>" );
+	equal( nodes[ 0 ].nodeName.toLowerCase(), "noembed", "jQuery.parseHTML(): only the <noembed> was created" );
+
+	// The markup reaches the HTML parser unchanged
+	parsed = document.createElement("div");
+	parsed.innerHTML = "<div class='outer'/><span class='inner'/>";
+	equal( jQuery("<div></div>").html( "<div class='outer'/><span class='inner'/>" ).html(),
+		parsed.innerHTML, "html() passes self-closing tags through unchanged" );
+	equal( jQuery("<div></div>").append( "<div class='outer'/><span class='inner'/>" ).html(),
+		parsed.innerHTML, "append() passes self-closing tags through unchanged" );
+
+	setTimeout(function() {
+		strictEqual( window.cve202011022, false, "Injected event handler did not run" );
+		start();
+	}, 100 );
 });
