@@ -2483,3 +2483,67 @@ asyncTest( "Self-closing tags are not expanded out of raw text elements (CVE-202
 		start();
 	}, 100 );
 });
+
+asyncTest( "<option> markup is not parsed inside a <select> wrapper (CVE-2020-11023)", function() {
+	var $div, html, nodes,
+		payload = "<img src='' onerror='window.cve202011023 = true;'>";
+
+	// The browser's own parse of the markup in a regular element - the context
+	// an HTML sanitizer checks the markup in
+	function parseInDiv( markup ) {
+		var div = document.createElement("div");
+		div.innerHTML = markup;
+		return div.innerHTML;
+	}
+
+	// Support: IE<=9
+	// IE<=9 drops <option> tags inserted outside of a select element,
+	// so the <select> wrapper is still used there
+	if ( !parseInDiv("<option></option>") ) {
+		expect( 1 );
+		ok( true, "<option> markup is still wrapped in a <select> in IE<=9" );
+		start();
+		return;
+	}
+
+	expect( 11 );
+
+	Globals.register("cve202011023");
+	window.cve202011023 = false;
+
+	// html() - innerHTML shortcut
+	html = "<option><xmp></option></select>" + payload + "</xmp>";
+	$div = jQuery("<div></div>").html( html );
+	equal( $div.find("img").length, 0, "html(): </select> does not end the <xmp> raw text" );
+	equal( $div.html(), parseInDiv( html ), "html(): markup is parsed as by the browser" );
+
+	// append() - domManip/buildFragment
+	html = "<option><style></option></select>" + payload + "</style>";
+	$div = jQuery("<div></div>").append( html );
+	equal( $div.find("img").length, 0, "append(): </select> does not end the <style> raw text" );
+	equal( $div.html(), parseInDiv( html ), "append(): markup is parsed as by the browser" );
+
+	// jQuery( html )
+	html = "<optgroup><noembed></optgroup></select>" + payload + "</noembed>";
+	$div = jQuery("<div></div>").append( jQuery( html ) );
+	equal( $div.find("img").length, 0, "jQuery(html): </select> does not end the <noembed> raw text" );
+	equal( $div.html(), parseInDiv( html ), "jQuery(html): markup is parsed as by the browser" );
+
+	// jQuery.parseHTML
+	html = "<option><noframes></option></select>" + payload + "</noframes>";
+	$div = jQuery("<div></div>").append( jQuery.parseHTML( html ) );
+	equal( $div.find("img").length, 0, "jQuery.parseHTML(): </select> does not end the <noframes> raw text" );
+	equal( $div.html(), parseInDiv( html ), "jQuery.parseHTML(): markup is parsed as by the browser" );
+
+	// A <select> wrapper closes on <input>, dropping the markup parsed before it
+	html = "<option>a</option><input>";
+	nodes = jQuery( html );
+	equal( nodes.length, 2, "jQuery(html): <option> is not parsed inside a <select>" );
+	equal( jQuery("<div></div>").append( nodes ).html(), parseInDiv( html ),
+		"jQuery(html): <option> markup is parsed as by the browser" );
+
+	setTimeout(function() {
+		strictEqual( window.cve202011023, false, "Injected event handler did not run" );
+		start();
+	}, 100 );
+});
